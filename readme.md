@@ -1,0 +1,4 @@
+ - create maps dictionary
+ - load the maps for all levels using the service
+ - do drilldown to the desired level
+ - check the topoJSON format

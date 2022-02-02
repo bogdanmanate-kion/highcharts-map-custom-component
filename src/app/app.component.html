@@ -1,0 +1,14 @@
+<div>
+  <select [(ngModel)]="selectedDrilldownLevel">
+    <option
+      *ngFor="let o of drillDownLevels"
+      [ngValue]="o"
+      [selected]="o.key == selectedDrilldownLevel.key"
+    >
+      {{ o.key }}
+    </option>
+  </select>
+  <input type="text" [(ngModel)]="mapISOName" />
+  <button (click)="goToMapHandler()">Go to</button>
+</div>
+<app-map-component></app-map-component>
