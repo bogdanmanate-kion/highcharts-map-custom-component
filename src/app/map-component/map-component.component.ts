@@ -1,16 +1,128 @@
 import { Component, OnInit } from '@angular/core';
-import proj4 from 'proj4';
-import HC_Drilldown from 'highcharts/modules/drilldown';
-import * as Highcharts from 'highcharts/highmaps';
-import worldMap from '@highcharts/map-collection/custom/world-continents.geo.json';
+import HC_Drilldown from 'highcharts/modules/drilldown.src';
+import HC_Data from 'highcharts/modules/data.src';
+import * as Highcharts from 'highcharts/highmaps.src';
 import { MapService } from '../map-services/map.service';
+import * as topojson from "topojson-client";
 
 HC_Drilldown(Highcharts);
+HC_Data(Highcharts);
 
 export interface MapConfig {
   drillDown: string;
   mapISOName: string;
 }
+
+const drilldown = async function (e) {
+  if (!e.seriesOptions) {
+    console.log('this',this)
+    const chart = this,
+        mapKey = `countries/${e.point.drilldown}-all`,
+        mapLocation = e.point.mapLocation;
+    // Handle error, the timeout is cleared on success
+    let fail = setTimeout(() => {
+      if (!Highcharts.maps[mapKey]) {
+        chart.showLoading(`
+                    <i class="icon-frown"></i>
+                    Failed loading ${e.point.name}
+                `);
+        fail = setTimeout(() => {
+          chart.hideLoading();
+        }, 1000);
+      }
+    }, 3000);
+
+    // Show the Font Awesome spinner
+    chart.showLoading('<i class="icon-spinner icon-spin icon-3x"></i>');
+
+    // Load the drilldown map
+    const topology = await fetch(
+        `https://code.highcharts.com/mapdata/${mapLocation}.topo.json`
+    ).then(response => response.json());
+
+    const data = Highcharts.geojson(topology);
+
+    // Set a non-random bogus value
+    data.forEach((d, i) => {
+      d.mapLocation =  'countries/' +
+          d.properties['hc-key'] +
+          '/' +
+          d.properties['hc-key'] +
+          '-all';
+      d.drilldown = d.properties['hc-key'];
+    });
+
+    // Apply the recommended map view if any
+    chart.mapView.update(
+        Highcharts.merge(
+            { insets: undefined },
+            topology.objects.default['hc-recommended-mapview']
+        ),
+        false
+    );
+
+    // Hide loading and add series
+    chart.hideLoading();
+    clearTimeout(fail);
+    chart.addSeriesAsDrilldown(e.point, {
+      name: e.point.name,
+      data,
+      type: 'map',
+      dataLabels: {
+        // enabled: true,
+        format: '{point.name}'
+      }
+    });
+
+    if (mapKey.indexOf('de') != -1) {
+      chart.addSeries(
+          {
+            type: 'mappoint',
+            name: 'Active Locations',
+            data: [
+              {
+                name: 'Frankfurter Werk',
+                key: 'DE-BW',
+                lat: 50.11,
+                lon: 8.68,
+              },
+              {
+                name: 'Berliner Werk',
+                key: 'DE-BW',
+                lat: 52.52,
+                lon: 13.4,
+              },
+            ],
+            marker: {
+              radius: 8
+            },
+            dataLabels: {
+              align: 'center',
+              verticalAlign: 'buttom',
+            },
+            events: {
+              click: function (event) {
+                console.log('event',event)
+              }
+            },
+            animation: false,
+            tooltip: {
+              pointFormat: '{point.name}'
+            }
+          },
+          true
+      );
+
+    }
+  }
+};
+
+// On drill up, reset to the top-level map view
+const drillup = function (e) {
+  if (e.seriesOptions.custom && e.seriesOptions.custom.mapView) {
+    e.target.mapView.update(e.seriesOptions.custom.mapView, false);
+  }
+};
 
 @Component({
   selector: 'app-map-component',
@@ -26,131 +138,40 @@ export class MapComponent implements OnInit {
   constructor(private mapService: MapService) {}
 
   ngOnInit() {
-    this.mapService.currentMapConfig.subscribe((mapConfig) => {
-      console.log('Load Map', mapConfig);
+    this.mapService.currentMapConfig.subscribe((topology) => {
+      const data = Highcharts.geojson(topology);
+      // Set drilldown pointers
+      data.forEach((d, i) => {
+        d.mapLocation = 'custom/' + d.properties['name'].toLowerCase().replace(' ', '-');
+        d.drilldown = d.properties['hc-key'];
+      });
 
+      this.initMapOptions(data);
       this.isMapLoaded = true;
+
     });
 
-    const data = Highcharts.geojson(worldMap).map((m) => {
-      m.mapLocation =
-        'custom/' + m.properties['name'].toLowerCase().replace(' ', '-');
-      m.drilldown = m.properties['hc-key'];
-      return m;
-    });
+  }
+
+  protected initMapOptions(data: any) {
+
+    const mapView =  {projection: {
+        name: 'WebMercator',
+        projectedBounds: 'world'
+      }};
 
     this.chartOptions = {
       chart: {
-        proj4: proj4,
         events: {
-          drilldown: (e) => {
-            if (!e.seriesOptions) {
-              const chart = e.target,
-                mapKey = (e.point as any).drilldown,
-                mapLocation = (e.point as any).mapLocation;
-
-              // Handle error, the timeout is cleared on success
-              let fail = setTimeout(() => {
-                if (!Highcharts.maps[mapKey]) {
-                  chart.showLoading(
-                    '<i class="icon-frown"></i> Failed loading ' + e.point.name
-                  );
-                  fail = setTimeout(() => {
-                    chart.hideLoading();
-                  }, 1000);
-                }
-              }, 3000);
-
-              // Show the spinner
-              chart.showLoading(
-                '<i class="icon-spinner icon-spin icon-3x"></i>'
-              ); // Font Awesome spinner
-
-              // Load the drilldown map
-              fetch(
-                'https://code.highcharts.com/mapdata/' +
-                  mapLocation +
-                  '.geo.json'
-              )
-                .then((response) => response.json())
-                .then((mapData) => {
-                  const drillDownData = Highcharts.geojson(mapData);
-                  Highcharts.maps[mapKey] = drillDownData;
-
-                  drillDownData.forEach((d, i) => {
-                    d.mapLocation =
-                      'countries/' +
-                      d.properties['hc-key'] +
-                      '/' +
-                      d.properties['hc-key'] +
-                      '-all';
-                    d.drilldown = d.properties['hc-key'];
-                  });
-
-                  // Hide loading and add series
-                  chart.hideLoading();
-                  clearTimeout(fail);
-                  chart.addSeriesAsDrilldown(e.point, {
-                    name: e.point.name,
-                    mapData: Highcharts.maps[mapKey],
-                    data: [
-                      ['de', 30],
-                      ['ro', 5],
-                    ],
-                    type: 'map',
-                    dataLabels: {
-                      enabled: true,
-                      format: '{point.name}',
-                    },
-                  });
-                  if (mapKey.indexOf('de') != -1) {
-                    chart.addSeries(
-                      {
-                        type: 'mappoint',
-                        name: 'Active Locations',
-                        data: [
-                          {
-                            name: 'Frankfurter Werk',
-                            lat: 50.11,
-                            lon: 8.68,
-                          },
-                          {
-                            name: 'Berliner Werk',
-                            lat: 52.52,
-                            lon: 13.4,
-                          },
-                        ],
-                      },
-                      true
-                    );
-
-                    // chart.addSeriesAsDrilldown(e.point, {
-                    //     type: 'mappoint',
-                    //     name: 'Active Locations',
-                    //     data: [{
-                    //         name: 'Frankfurter Werk',
-                    //         lat: 50.11,
-                    //         lon: 8.68,
-                    //     },
-                    //         {
-                    //             name: 'Berliner Werk',
-                    //             lat: 52.52,
-                    //             lon: 13.4,
-                    //         }]
-                    // })
-                  }
-                });
-            }
-          },
-          drillup: function () {
-            this.setTitle(null, { text: '' });
-          },
+          drilldown,
+          drillup
         },
       },
       tooltip: { enabled: false },
       title: {
         text: '',
       },
+      mapView,
       mapNavigation: {
         enabled: true,
         buttonOptions: {
@@ -178,8 +199,20 @@ export class MapComponent implements OnInit {
       ],
       series: [
         {
+          name: 'Basemap',
           type: 'map',
-          name: 'Ship-tos',
+          mapData: data,
+          borderColor: '#A0A0A0',
+          nullColor: 'rgba(200, 200, 200, 0.3)',
+          showInLegend: false,
+          allAreas: true,
+          custom: {
+            mapView
+          },
+        },
+        {
+          type: 'map',
+          name: 'World',
           joinBy: ['hc-key'],
           states: {
             hover: {
@@ -198,49 +231,6 @@ export class MapComponent implements OnInit {
             ['eu', 1],
           ],
         },
-        // should be added only for country view
-        // {
-        //     type: 'mappoint',
-        //     name: 'Locations',
-        //     showInLegend: false,
-        //     color: Highcharts.getOptions().colors[4],
-        //     marker: {
-        //         fillColor: '#4d4d4d',
-        //         radius: 15,
-        //         states: {
-        //             hover: {
-        //                 enabled: false,
-        //                 radius: 10,
-        //             },
-        //         },
-        //     },
-        //     dataLabels: {
-        //         enabled: true,
-        //         format: '{point.name}',
-        //     },
-        //     events: {
-        //         click: (event) => {
-        //             console.log('Show the truck list for:', event.point.options.name);
-        //         },
-        //     },
-        //     data: [
-        //         {
-        //             name: 'Frankfurter Werk',
-        //             lat: 50.11,
-        //             lon: 8.68,
-        //         },
-        //         {
-        //             name: 'Berliner Werk',
-        //             lat: 52.52,
-        //             lon: 13.4,
-        //         },
-        //         {
-        //             name: 'Italia spedition',
-        //             lat: 41.9,
-        //             lon: 12.48,
-        //         },
-        //     ],
-        // },
       ],
       drilldown: {
         activeDataLabelStyle: {
@@ -248,7 +238,8 @@ export class MapComponent implements OnInit {
           textDecoration: 'none',
           textOutline: '1px #000000',
         },
-        drillUpButton: {
+        allowPointDrilldown: true,
+        breadcrumbs: {
           relativeTo: 'spacingBox',
           position: {
             x: 0,

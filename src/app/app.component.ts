@@ -17,7 +17,7 @@ export class AppComponent implements OnInit {
 
   selectedDrilldownLevel = this.drillDownLevels[0];
 
-  mapISOName = '';
+  mapISOName = 'world';
   constructor(private mapService: MapService) {}
   ngOnInit() {}
 
